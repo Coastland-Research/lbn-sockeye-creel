@@ -11,3 +11,9 @@ creel_2023 <- creel_2023 %>%
          whitefish_killed = `...15`, burbot_killed = `...16`, coho_killed = `...17`,
          sockeye_rel = `Catch Released`, rainbow_rel = `...19`, laketrout_rel = `...20`,
          whitefish_rel = `...21`, burbot_rel = `...22`, coho_rel = `...23`)
+
+boatcounts <- read_csv("data/boatcounts.csv")
+
+interviews_bydate <- read_csv("data/interviews_bydate.csv")
+
+boat_eff <- read_csv("data/boat_effort.csv")
