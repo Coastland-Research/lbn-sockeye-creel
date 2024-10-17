@@ -52,9 +52,13 @@ creel_2023 %>%
 hourly_boats <- boatcounts %>%
   pivot_longer(cols = `8:00`:`18:00`, names_to = "hour block", values_to = "number of boats")
 
+
 hourly_boats %>%
   ggplot(aes(x = `hour block`, y = `number of boats`))+
   geom_boxplot()
 
 # merge hourly_boats and creel_2023 by date 
 # to get column for total daily fishing effort:
+
+merged.df <- merge(creel_2023, hourly_boats, by = "Date") %>%
+  View()
