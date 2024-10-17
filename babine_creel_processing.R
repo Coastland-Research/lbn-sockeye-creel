@@ -40,7 +40,7 @@ creel_2023 %>%
   ggplot(aes(x = day_type, y = cpue))+
   geom_boxplot()
 
-t.test(hpue ~ day_type, data = creel_2023)
+t.test(hpue ~ day_type, data = creel_2023) # no significant difference
 
 creel_2023 %>%
   ggplot(aes(x = day_type, y = hpue))+
@@ -55,3 +55,6 @@ hourly_boats <- boatcounts %>%
 hourly_boats %>%
   ggplot(aes(x = `hour block`, y = `number of boats`))+
   geom_boxplot()
+
+# merge hourly_boats and creel_2023 by date 
+# to get column for total daily fishing effort:
