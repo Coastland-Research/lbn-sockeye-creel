@@ -3,13 +3,17 @@ library(grid)
 library(gridExtra)
 library(lubridate)
 
-# 1. read data
+
+# 1. read data ------------------------------------------------------------
+
 creel_2023 <- read_csv("data/2023 creel data.csv")
 boatcounts <- read_csv("data/boatcounts.csv")
 interviews_bydate <- read_csv("data/interviews_bydate.csv")
 boat_eff <- read_csv("data/boat_effort.csv")
 
-# 2. process and format data for analysis
+
+# 2. process and format data for analysis ---------------------------------
+
 creel_2023 <- creel_2023 %>%
   subset(Date!= "Totals") %>%
   subset(!is.na(`Time of Interview`)) %>%
@@ -39,7 +43,12 @@ creel_2023 <- creel_2023 %>%
                                 week_day == "Friday" ~ "weekday",
                               week_day == "Saturday" | week_day == "Sunday" ~ "weekend"))
 
-# Plot CPUE and HPUE trends by date
+# Write csv for reformatted data file
+write.csv(creel_2023, "~/coastland/lbn-sockeye-creel/data/creel2023_reformatted.csv", row.names = FALSE) 
+
+
+# 3. Plot CPUE and HPUE trends by date ------------------------------------
+
 cpue_pt <- creel_2023 %>%
   ggplot(aes(x = Date, y = cpue)) +
   geom_point()+
@@ -57,7 +66,9 @@ hpue_pt <- creel_2023 %>%
 
 grid.arrange(cpue_pt, hpue_pt, nrow = 1, top=textGrob("Babine Lake creel survey CPUE and HPUE vs Date"))
 
-#Plot daily total catch and daily total harvest by date
+
+# 4. Plot daily total catch and daily total harvest by date ---------------
+
 harvestplot <- creel_2023 %>%
   ggplot(aes(x = Date, y = daily_harv))+
   geom_point() +
@@ -70,10 +81,9 @@ catchplot <- creel_2023 %>%
   ylab("Daily total sockeye catches")+ xlab("")
 grid.arrange(catchplot, harvestplot, nrow = 2, top = textGrob("Babine Lake sockeye catches (including harvest and release) and harvests vs Date"))
 
-# Write csv for reformatted data file
-#write.csv(creel_2023, "~/coastland/lbn-sockeye-creel/data/creel2023_reformatted.csv", row.names = FALSE) 
 
-# Analysis of effort by day of the week and by type of day ----------------
+# 5. Analysis of effort by day of the week and location -------------
+
 ### weekend vs weekday ANOVA
 aov_day_eff <- aov(total_eff~day_type, data = creel_2023)
 summary(aov_day_eff) # F = 11.29 on 1,750 Df, p = 0.0008
@@ -90,7 +100,7 @@ summary(aov_daytype) # p = 2.49e-07
 aov_n_day <- aov(n_interviews_on_date ~ day_type, data = creel_2023)
 summary(aov_n_day)
 
-# Analysis of effort by location ------------------------------------------
+#effort by location
 aov_loc <- aov(total_eff ~ `Interview location`, data = creel_2023)
 summary(aov_loc) # F = 2.99 on 5,743 Df, p = 0.011
 
@@ -100,21 +110,23 @@ summary(aov_loc_cpue) # not statistically significant - same for HPUE
 aov_n_loc <- aov(n_interviews_on_date ~ `Interview location`, data = creel_2023)
 summary(aov_n_loc) # not significant
 
-# boxplots of CPUE and HPUE by day type -----------------------------------
+# 6. Boxplots -------------------------------------------------------------
+
+# CPUE and HPUE by day type
 cpueplot <- creel_2023 %>%
   ggplot(aes(x = day_type, y = cpue))+geom_boxplot()
 hpueplot <- creel_2023 %>%
   ggplot(aes(x = day_type, y = hpue))+geom_boxplot()
 grid.arrange(cpueplot, hpueplot, nrow = 1)
-
-# Boxplots of CPUE and HPUE by location -----------------------------------
+# CPUE and HPUE by location
 cp_loc <- creel_2023 %>%
   ggplot(aes(x = `Interview location`, y = cpue))+geom_boxplot()
 hp_loc <- creel_2023 %>%
   ggplot(aes(x = `Interview location`, y = hpue))+geom_boxplot()
 grid.arrange(cp_loc, hp_loc, nrow = 2)
 
-# Estimate statistics by strata (day type and location) ----------------------
+
+# 7. Estimate statistics by strata (day type and location) ----------------------
 # calculate totals (effort, catch, harvest), then calculate CPUE/HPUE and its variance
 strata_grouped <- creel_2023 %>%
   filter(!is.na(`Interview location`)) %>%
@@ -127,7 +139,16 @@ strata_grouped <- creel_2023 %>%
             mean_hpue = mean(hpue),
             mean_var_hpue = mean(var_hpue))
 
-# Boat count data ---------------------------------------------------------
+creel_2023 %>%
+  filter(!is.na(`Interview location`)) %>%
+  ggplot(aes(x = Date, y = total_sk_catch, fill = `Interview location`))+
+  geom_col() +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Spectral") +
+  ggtitle("Babine Lake creel survey: sockeye catch by date and location")+
+  ylab("Total sockeye catch")
+
+# 8. Boat count data ---------------------------------------------------------
 
 # For each hour block, calculate % effort x boat effort -------------------
 hourly_boats <- boatcounts %>%
@@ -135,12 +156,28 @@ hourly_boats <- boatcounts %>%
   mutate(per_effort = `number of boats`/ Count,
          `number of boats` = ifelse(is.na(`number of boats`), 0, `number of boats`)) %>%
   filter(!is.na(Count))
-
-
-hourly_boats %>%
-  ggplot(aes(x = `hour block`, y = `number of boats`))+
-  geom_boxplot()
 hourly_boats$Date <- mdy(hourly_boats$Date)
+
+# Percent of daily effort in each hourly time block
+hourly_boats %>%
+  ggplot(aes(x = `hour block`, y = per_effort))+
+  geom_boxplot() +
+  xlab("Hourly time block") + ylab("Percent of daily boat effort") +
+  theme_minimal()
+
+# Effort by area surveyed
+hourly_boats %>%
+  ggplot(aes(x = `Area Surveyed`, y = Effort)) +
+  geom_boxplot()
+# And by both area and date:
+hourly_boats %>% 
+  filter(!is.na(`Area Surveyed`)) %>%
+  ggplot(aes(x = Date, y = Effort, fill = `Area Surveyed`))+
+  geom_col() +
+  scale_fill_brewer(palette = "Spectral")+
+  theme_minimal() +
+  ylab("Boat effort") +
+  ggtitle("Babine Lake creel survey: boat effort by date and area surveyed")
 
 # Plot boat counts by date
 eff_date <- hourly_boats %>%
@@ -159,8 +196,13 @@ count_date <- hourly_boats %>%
 
 grid.arrange(count_date, eff_date, nrow = 1, top = textGrob("Daily boat counts and daily boat effort by Date"))
 
+
+
+# Merge interview & boat data to estimate TOTAL CATCH and HARVEST ---------
+# now we use estimated CPUE and HPUE rates to take the boat effort and estimate 
+# the resulting harvest. 
+
 # merge hourly_boats and creel_2023 by date 
-# to get column for total daily fishing effort:
 
 merged.df <- merge(creel_2023, hourly_boats, by = "Date") %>%
   View()
