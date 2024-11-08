@@ -13,7 +13,8 @@ boat_eff <- read_csv("data/boat_effort.csv")
 
 # 2. process and format data for analysis ---------------------------------
 
-creel_bydate <- creel_2023 %>%
+# interviews grouped by day
+creeldata <- creel_2023 %>%
   subset(Date!= "Totals") %>%
   subset(!is.na(`Time of Interview`)) %>%
   select(-c(CPUE, HPUE)) %>%
@@ -22,23 +23,21 @@ creel_bydate <- creel_2023 %>%
          sockeye_rel = `Catch Released`, rainbow_rel = `...20`, laketrout_rel = `...21`,
          whitefish_rel = `...22`, burbot_rel = `...23`, coho_rel = `...24`, total_sk_catch = `Total Sk Catch + Rel`,
          total_eff = `No Anglers X Hrs fished`) %>%
+  mutate(day_type = case_when(week_day == "Monday" | week_day == "Tuesday" | week_day == "Wednesday" | week_day == "Thursday" | week_day == "Friday" ~ "weekday",
+                              week_day == "Saturday" | week_day == "Sunday" ~ "weekend")) %>%
   group_by(Date) %>%
-  add_count(Date, name = "n_interviews_on_date") %>%
   mutate(sockeye_killed = as.numeric(sockeye_killed), total_eff = as.numeric(total_eff), 
          total_sk_catch = as.numeric(total_sk_catch),
+         Date = mdy(Date), cpue = sum(total_sk_catch)/sum(total_eff),
+         hpue = sum(sockeye_killed)/sum(total_eff), 
+         daily_eff = sum(total_eff),
          daily_catch = sum(total_sk_catch),
-         daily_harv = sum(sockeye_killed),
-         Date = mdy(Date)) %>% 
-  mutate(cpue = sum(total_sk_catch)/sum(total_eff),
-         hpue = sum(sockeye_killed)/sum(total_eff),
-         var_hpue = (sum(sockeye_killed - total_eff*hpue)^2)/ # change this so it adds CPUE/HPUE/variances by stratum instead of by date.
-           (((sum(total_eff))/n_interviews_on_date)^2)*(n_interviews_on_date*(n_interviews_on_date-1)),
-         var_cpue = (sum(total_sk_catch - total_eff*cpue)^2)/
-           (((sum(total_eff))/n_interviews_on_date)^2)*(n_interviews_on_date*(n_interviews_on_date-1)))
+         daily_harv = sum(sockeye_killed))
   
+# interviews grouped by STRATUM
 creel_stratified <- creel_2023 %>%
   subset(Date!= "Totals") %>%
-  subset(!is.na(`Time of Interview`)) %>%
+  #subset(!is.na(`Time of Interview`)) %>%
   select(-c(CPUE, HPUE)) %>%
   filter(!is.na(`Interview location`)) %>%
   rename(sockeye_killed = `Catch Killed`, rainbow_killed = `...14`, laketrout_killed = `...15`,
@@ -60,7 +59,7 @@ creel_stratified <- creel_2023 %>%
                                        RB = "Red Bluff Provincial Park")) %>%
   group_by(`Interview location`, day_type) %>%
   summarise("Number of interviews" = n(),
-            "Total Effort" = mean(total_eff),
+            "Total Effort" = sum(total_eff),
             "Total catch" = sum(total_sk_catch),
             "Total harvest" = sum(sockeye_killed),
             "CPUE" = sum(total_sk_catch)/sum(total_eff),
@@ -72,7 +71,7 @@ creel_stratified <- creel_2023 %>%
   
   
 # Write csv for reformatted data file
-write.csv(creel_stratified, "~/coastland/lbn-sockeye-creel/data/creel2023_reformatted.csv", row.names = FALSE) 
+write.csv(creeldata, "~/coastland/lbn-sockeye-creel/data/creel2023_reformatted.csv", row.names = FALSE) 
 
 # TABLE FOR STRATIFIED RESULTS:
 summary_table <- gt(creel_stratified) %>%
@@ -85,15 +84,14 @@ summary_table <- gt(creel_stratified) %>%
 
 # 3. Plot CPUE and HPUE trends by date ------------------------------------
 
-cpue_pt <- creel_2023 %>%
+cpue_pt <- creeldata %>%
   ggplot(aes(x = Date, y = cpue)) +
   geom_point()+
   geom_smooth(method = "lm", colour = "grey40")+
   theme_minimal() +
   ylab("CPUE (sockeye caught per hour of fishing)")
 
-
-hpue_pt <- creel_2023 %>%
+hpue_pt <- creeldata %>%
   ggplot(aes(x = Date, y = hpue)) +
   geom_point()+
   geom_smooth(method = "lm", colour = "grey40")+
@@ -102,72 +100,85 @@ hpue_pt <- creel_2023 %>%
 
 grid.arrange(cpue_pt, hpue_pt, nrow = 1, top=textGrob("Babine Lake creel survey CPUE and HPUE vs Date"))
 
-
 # 4. Plot daily total catch and daily total harvest by date ---------------
 
-harvestplot <- creel_2023 %>%
-  ggplot(aes(x = Date, y = daily_harv))+
-  geom_point() +
-  theme_minimal() +
-  #geom_smooth(colour = "grey40")+
-  ylab("Daily total sockeye harvests")+
-  ggtitle("Babine Lake sockeye catches (harvests and releases) by Date")
-catchplot <- creel_2023 %>%
+catchplot <- creeldata %>%
   ggplot(aes(x = Date, y = daily_catch))+
   geom_point() +
   theme_minimal() +
-  #geom_smooth(colour = "grey40")+
   ylab("Daily total sockeye catches")+ xlab("")+
+  ggtitle("Babine Lake sockeye catches (harvests and releases) by Date")
+harvestplot <- creeldata %>%
+  ggplot(aes(x = Date, y = daily_harv))+
+  geom_point() +
+  theme_minimal() +
+  ylab("Daily total sockeye harvests")+ xlab("Date")+
   ggtitle("Babine Lake sockeye harvests by Date")
 grid.arrange(catchplot, harvestplot, nrow = 2)
 
+# total effort by date: 
+creeldata %>%
+  ggplot(aes(x = Date, y = daily_eff)) +
+  geom_point()+
+  theme_minimal() +
+  ylab("Daily effort (angler hours) from interviews")+
+  ggtitle("Babine Lake Creel Survey Effort by Date")
 
 # 5. Analysis of effort by day of the week and location -------------
 
 ### weekend vs weekday ANOVA
-aov_day_eff <- aov(total_eff~day_type, data = creel_2023)
+aov_day_eff <- aov(total_eff~day_type, data = creeldata)
 summary(aov_day_eff) # F = 11.29 on 1,750 Df, p = 0.0008
+
 # Tested across all days of week using ANOVA: statistical difference (p = 0.033) 
 # but maybe a result of weekday/weekend difference. So, try filtering out weekends and test:
-weekdays <- creel_2023 %>%
-  filter(day_type == "weekday")
+weekends <- creeldata %>%
+  filter(day_type == "weekend")
 aov_weekday_eff <- aov(total_eff ~ week_day, data = weekdays)
 summary(aov_weekday_eff) # outcome: no significant difference BETWEEN WEEKDAYS
 # use *weekday vs weekend* as strata (2 categories), rather than every day of week (7 categories). 
-aov_daytype <- aov(cpue ~ day_type, data = creel_2023)
-summary(aov_daytype) # p = 2.49e-07
-#Effect of day type on number of interviews conducted per day:
-aov_n_day <- aov(n_interviews_on_date ~ day_type, data = creel_2023)
-summary(aov_n_day)
+
+# Difference in CPUE or HPUE?
+aov_daytype <- aov(cpue~day_type, data = creeldata)
+summary(aov_daytype) # p = 0.358 not significant
+
+aov_daytype2 <- aov(hpue~day_type, data = creeldata)
+summary(aov_daytype2)
+
+aov_catch <- aov(total_sk_catch~day_type, data = creeldata)
+summary(aov_catch)
+aov_h <- aov(sockeye_killed~day_type, data = creeldata)
+summary(aov_h)
 
 #effort by location
-aov_loc <- aov(total_eff ~ `Interview location`, data = creel_2023)
+aov_loc <- aov(total_eff ~ `Interview location`, data = creeldata)
 summary(aov_loc) # F = 2.99 on 5,743 Df, p = 0.011
+# CPUE and HPUE by location:
+aov_loc_cpue <- aov(cpue ~ `Interview location`, data = creeldata)
+summary(aov_loc_cpue) 
 
-aov_loc_cpue <- aov(cpue ~ `Interview location`, data = creel_2023)
-summary(aov_loc_cpue) # not statistically significant - same for HPUE
+aov_loc_hpue <- aov(hpue ~ `Interview location`, data = creeldata)
+summary(aov_loc_hpue) 
 
-aov_n_loc <- aov(n_interviews_on_date ~ `Interview location`, data = creel_2023)
-summary(aov_n_loc) # not significant
 
 # 6. Boxplots -------------------------------------------------------------
-
 # CPUE and HPUE by day type
-cpueplot <- creel_2023 %>%
+cpueplot <- creeldata %>%
   ggplot(aes(x = day_type, y = cpue))+geom_boxplot() +
   theme_minimal()+
   xlab("") + ylab("CPUE")+
   ggtitle("CPUE on weekdays vs weekends")
 
-hpueplot <- creel_2023 %>%
+hpueplot <- creeldata %>%
   ggplot(aes(x = day_type, y = hpue))+geom_boxplot() +
   theme_minimal()+
   xlab("") + ylab("HPUE")+
   ggtitle("HPUE on weekdays vs weekends")
 
 grid.arrange(cpueplot, hpueplot, nrow = 1)
+
 # CPUE and HPUE by location
-cp_loc <- creel_2023 %>%
+cp_loc <- creeldata %>%
   filter(!is.na(`Interview location`)) %>%
   ggplot(aes(x = `Interview location`, y = cpue))+
   geom_boxplot() +
@@ -175,7 +186,7 @@ cp_loc <- creel_2023 %>%
   ylab("CPUE") + xlab("") +
   ggtitle("CPUE by interview location")
 
-hp_loc <- creel_2023 %>%
+hp_loc <- creeldata %>%
   filter(!is.na(`Interview location`)) %>%
   ggplot(aes(x = `Interview location`, y = hpue))+
   geom_boxplot() +
@@ -185,35 +196,8 @@ hp_loc <- creel_2023 %>%
 
 grid.arrange(cp_loc, hp_loc, nrow = 2)
 
-
-# 7. Estimate statistics by strata (day type and location) ----------------------
-# calculate totals (effort, catch, harvest), then calculate CPUE/HPUE and its variance
-strata_grouped <- creel_2023 %>%
-  mutate(`Interview location` = recode(`Interview location`,
-                                       BL = "Babine Lodge",
-                                       CD = "Coop Dogs Resort",
-                                       GM = "Granisle Marina",
-                                       LB = "Lions Beach Park",
-                                       RB = "Red Bluff Provincial Park")) %>%
-  filter(!is.na(`Interview location`)) %>%
-  group_by(`Interview location`, day_type) %>%
-  summarise("Total Effort" = sum(total_eff),
-            "Catch" = sum(total_sk_catch),
-            "Harvest" = sum(sockeye_killed),
-            "Mean CPUE" = mean(cpue),
-            "Variance (CPUE)" = mean(var_cpue),
-            "Mean HPUE" = mean(hpue),
-            "Variance (HPUE)" = mean(var_hpue))
-
-(summary_table <- gt(strata_grouped) %>%
-  fmt_number(columns = c("Mean CPUE", "Mean HPUE"), decimals = 3, drop_trailing_zeros = TRUE) %>%
-  fmt_scientific(columns = c("Variance (CPUE)", "Variance (HPUE)"), decimals = 2, exp_style = "e1") %>%
-    tab_header(title = "Lake Babine Creel statistics by interview location and day type") |>
-    cols_label(starts_with("day_type")~"") |>
-    cols_width(starts_with("Total Effort")~px(200)))
-
-
-creel_2023 %>%
+# Barplot showing total catch by both date (x) and location (colour):
+creeldata %>%
   filter(!is.na(`Interview location`)) %>%
   mutate(`Interview location` = recode(`Interview location`,
                                        BL = "Babine Lodge",
@@ -247,11 +231,7 @@ hourly_boats %>%
   theme_minimal() +
   ggtitle("Percent of daily boat effort by hour block during boat count days")
 
-# Effort by area surveyed
-hourly_boats %>%
-  ggplot(aes(x = `Area Surveyed`, y = Effort)) +
-  geom_boxplot()
-# And by both area and date:
+# Effort by area (colour) and date surveyed:
 hourly_boats %>% 
   filter(!is.na(`Area Surveyed`)) %>%
   ggplot(aes(x = Date, y = Effort, fill = `Area Surveyed`))+
@@ -278,12 +258,22 @@ count_date <- hourly_boats %>%
 
 grid.arrange(count_date, eff_date, nrow = 1, top = textGrob("Daily boat counts and daily boat effort by Date"))
 
+# plot percent effort by hour block (colour) and date (x), and y = total effort:
+hourly_boats %>%
+  rename("Hour Block" = `hour block`) %>%
+  ggplot(aes(x = Date, y = per_effort, fill = `Hour Block`))+
+  geom_col()+
+  scale_fill_brewer(palette = "Spectral", direction = -1)+
+  theme_minimal() +
+  ylab("Percent Effort") + xlab("Date") +
+  ggtitle("Percent of daily boat effort by date and hour block of counting")
+  
 
-# Merge interview & boat data to estimate TOTAL CATCH and HARVEST ---------
+# 9. Merge interview & boat data to estimate TOTAL CATCH and HARVEST ---------
 # use estimated CPUE and HPUE rates to take boat effort and estimate daily harvest 
 
 # Prep creel data by keeping only the columns we want: CPUE, HPUE. Date. week_day. day_type. 
-merge_creel <- creel_2023 %>%
+merge_creel <- creeldata %>%
   select(Date, week_day, day_type, cpue, hpue) %>%
   distinct(.keep_all = T)
 
