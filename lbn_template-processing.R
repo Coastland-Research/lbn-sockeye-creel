@@ -1,5 +1,7 @@
-library(tidyverse) # first make sure you have tidyverse package installed - run
-# install.packages("tidyverse") in console if not already installed.
+library(tidyverse) 
+library(gt)
+library(plotrix)  # first make sure you have the packages installed - run
+# install.packages("package name") in console if not already installed.
 
 # 1. Read in the data as 3 data frames, one from each sheet of the excel 
 # spreadsheet "LBN_creel-template.xlsx", each sheet saved as a csv:
@@ -7,42 +9,73 @@ interview_data <- read_csv("data/interview recording sheet.csv")
 daily_data <- read_csv("data/daily angler profile.csv")
 boatcount_data <- read_csv("data/boat counts.csv")
 
-# 2. Calculate effort, catch, harvest, CPUE and HPUE by daytype-location strata 
+# 2. Calculate effort, catch, harvest, CPUE and HPUE stratified by day-type 
 creel_stratified <- interview_data %>%
-  subset(!is.na(`Time of Interview`)) %>%
+  subset(!is.na(`Time of interview`)) %>%
   filter(!is.na(`Interview location`)) %>%
   mutate(day_type = case_when(week_day == "Monday" | week_day == "Tuesday" | week_day == "Wednesday" | week_day == "Thursday" | week_day == "Friday" ~ "weekday",
                               week_day == "Saturday" | week_day == "Sunday" ~ "weekend")) %>%
   mutate(`SK killed` = ifelse(is.na(`SK killed`), 0, `SK killed`),
          `Total sk catch` = ifelse(is.na(`Total sk catch`), 0, `Total sk catch`)) %>%
   mutate(`SK killed` = as.numeric(`SK killed`), total_eff = as.numeric(`Total fishing effort`), 
-         `Total sk catch` = as.numeric(`Total sk catch`), Date = mdy(Date)) %>%
+         `Total sk catch` = as.numeric(`Total sk catch`), Date = mdy(Date),
+         CPUE = `Total sk catch`/`Total fishing effort`,
+         HPUE = `SK killed`/`Total fishing effort`) %>%
   mutate(`Interview location` = recode(`Interview location`,
                                        BL = "Babine Lodge",
                                        CD = "Coop Dogs Resort",
                                        GM = "Granisle Marina",
                                        LB = "Lions Beach Park",
                                        RB = "Red Bluff Provincial Park")) %>%
-  group_by(`Interview location`, day_type) %>%
+  group_by(day_type) %>%
   summarise("Number of interviews" = n(),
             "Total Effort" = sum(`Total fishing effort`),
             "Total catch" = sum(`Total sk catch`),
             "Total harvest" = sum(`SK killed`),
-            "CPUE" = sum(`Total sk catch`)/sum(`Total fishing effort`),
-            "Variance (CPUE)" = (sum(`Total sk catch` - `Total fishing effort`*CPUE)^2)/
-              (((sum(`Total fishing effort`))/`Number of interviews`)^2)*(`Number of interviews`*(`Number of interviews`-1)),
-            "HPUE" = sum(`SK killed`)/sum(`Total fishing effort`),
-            "Variance (HPUE)" = (sum(`SK killed` - `Total fishing effort`*HPUE)^2)/ # change this so it adds CPUE/HPUE/variances by stratum instead of by date.
-              (((sum(`Total fishing effort`))/`Number of interviews`)^2)*(`Number of interviews`*(`Number of interviews`-1)))
+            `Harvest lower 95%` = sum(sockeye_killed) - 1.96 * sd(sockeye_killed) * sqrt(n()),
+            `Harvest upper 95%` = sum(sockeye_killed) + 1.96 * sd(sockeye_killed) * sqrt(n()),
+            "Mean CPUE" = mean(CPUE),
+            #"SD (CPUE)" = sd(CPUE),
+            #"SE (CPUE)" = std.error(CPUE),
+            "CV (CPUE)" = cv(CPUE),
+            "Mean HPUE" = mean(HPUE),
+            #"SD (HPUE)" = sd(HPUE),
+            #"SE (HPUE)" = std.error(HPUE),
+            "CV (HPUE)" = cv(HPUE))
+
+# And overall creel stats:
+creel_totals <- creel_stratified %>%
+  summarize(day_type = "All Days",
+    `Number of interviews` = n(),
+    `Total Effort` = sum(total_eff),
+    `Total catch` = sum(total_sk_catch),
+    `Total harvest` = sum(sockeye_killed),
+    #"SE (Harvest)" = std.error(sockeye_killed),
+    `Harvest lower 95%` = sum(sockeye_killed) - 1.96 * sd(sockeye_killed) * sqrt(n()),
+    `Harvest upper 95%` = sum(sockeye_killed) + 1.96 * sd(sockeye_killed) * sqrt(n()),
+    "Mean CPUE" = mean(CPUE),
+    #"SD (CPUE)" = sd(CPUE),
+    #"SE (CPUE)" = std.error(CPUE),
+    "CV (CPUE)" = cv(CPUE),
+    "Mean HPUE" = mean(HPUE),
+    #"SD (HPUE)" = sd(HPUE),
+    #"SE (HPUE)" = std.error(HPUE),
+    "CV (HPUE)" = cv(HPUE))
+
+# Combine data
+final_data2 <- bind_rows(creel_stratified, creel_totals)
 
 # Create a table showing stats by stratum
 summary_table <- gt(creel_stratified) %>%
-  fmt_number(columns = c("CPUE", "HPUE"), decimals = 3, drop_trailing_zeros = TRUE) %>%
-  fmt_scientific(columns = c("Variance (CPUE)", "Variance (HPUE)"), decimals = 2, exp_style = "e1") %>%
-  tab_header(title = "Lake Babine Creel statistics by interview location and day type") |>
-  cols_width(starts_with("Total Effort")~px(200)) |>
-  cols_width(starts_with("day_type")~px(200)) |>
+  fmt_number(columns = c("Mean CPUE", "Mean HPUE"), decimals = 3, drop_trailing_zeros = TRUE) %>%
+  fmt_number(columns = c("CV (CPUE)", "CV (HPUE)"), decimals = 3) %>%
+  tab_header(title = "Lake Babine Creel statistics by day type") |>
+  cols_width(starts_with("Total Effort")~px(100)) |>
+  cols_width(starts_with("day_type")~px(100)) |>
   cols_label(starts_with("day_type")~"")
+
+# print the table
+summary_table
 
 
 # 2. Format interview data by day
